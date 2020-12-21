@@ -1,0 +1,6 @@
+venv
+config.ini
+*.log
+database.json
+data/
+
