@@ -14,10 +14,16 @@ Developed for use in a Home Automation application and is compatible with [Home 
 
  - {mqtt_topic_prefix}/speech{/optional_volume}
 	- payload: text to speak
+	- example: "audio/speech" -> "hello from polly"
+	- example with volume: "audio/speech/35" -> "hello at a volume of 35%"
+	
  - {mqtt_topic_prefix}/play{/optional_volume}
 	- payload: filename
+	- example: "audio/play" -> "doorbell.wav"
+	
 - {mqtt_topic_prefix}/set/volume
 	- payload: volume as string int
+	- example: "audio/set/volume" -> "60"
 
 **AWS Polly**
 
