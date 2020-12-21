@@ -1,0 +1,13 @@
+{
+    "name": 'mqtt-audio-bridge',
+    "script": 'mqttaudiobridge.py',
+    "interpreter": './venv/bin/python3',
+    "instances": 1,
+    "autorestart": true,
+    "watch": ['*.py'],
+    "max_memory_restart": '1G',
+    "log_date_format" : 'YYYY-DD-MM HH:mm:ss.SSS',
+    "out_file": "stdout.log",
+    "error_file": "stderr.log",
+    "exp_backoff_restart_delay" : 2000
+}
