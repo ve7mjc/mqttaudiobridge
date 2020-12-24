@@ -186,13 +186,16 @@ class AudioBridge():
         logger.info("Started HMI-Audio")
         self.mqttc.loop_forever()
 
-    def speak(self,text,volume_requested=None):
-        logger.info("speech requested for text='%s'" % text)
-        tts = Polly('Joanna')
-        filename = tts.get_waveform(text)
-        self.play(filename + ".wav",volume_requested)
+    def speak(self,text,volume=None,voice=None):
+        
+        if not voice:
+            voice = "Joanna"
+        logger.info("speech requested for text='%s', vol=%s, voice=%s" 
+            % (text,volume,voice))
+        tts = Polly(voice)
+        self.play(tts.get_waveform(text) + ".wav",volume)
 
-    def play(self,filename,volume_requested=None):
+    def play(self,filename,volume=None):
         
         filepath = filename
         
@@ -202,15 +205,15 @@ class AudioBridge():
         
         if path.exists(filepath):
             logger.info("playing audio file %s" % filename)
-            if volume_requested:
-                self.set_volume(volume_requested,True)
+            if volume:
+                self.set_volume(volume,True)
             wave_obj = sa.WaveObject.from_wave_file(filepath)
             play_obj = wave_obj.play()
             play_obj.wait_done()  # Wait until sound has finished playing
         else:
             logger.error("file '%s' does not exist!" % filename)
 
-        if volume_requested:
+        if volume:
             self.reset_volume()
 
     # The callback for when the client receives a CONNACK response from the server.
@@ -229,6 +232,8 @@ class AudioBridge():
             self.master_mixer.setvolume(self.master_volume)
 
     def set_volume(self,value,temp=False):
+        if isinstance(value,str):
+            value = int(float(value))
         if value >= 0 and value <= 100:
             self.master_mixer.setvolume(value)
             if not temp:
@@ -239,31 +244,60 @@ class AudioBridge():
     # The callback for when a PUBLISH message is received from the server.
     def on_message(self,client,userdata,msg):
         try:
+            
             payload = msg.payload.decode('utf-8')
+        
+            print("%s %s" % (msg.topic,payload))
+        
             volume = None
 
             payload_json = None
             if "/json" in msg.topic:
-                payload_json = json.loads(payload)
-            
-            if (msg.topic.startswith(mqtt_topic_prefix + "set/volume")) and payload:
-                volume = int(payload)
-                self.set_volume(volume)
-                self.speak("volume %d" % volume)
-            
-            if (msg.topic.startswith(mqtt_topic_prefix + "speech")) and payload:
-                topic_prefix = mqtt_topic_prefix + "speech"
-                pos = msg.topic.rfind("/")
-                if pos == len(topic_prefix):
-                    volume = int(msg.topic.split("/")[-1])
-                self.speak(payload,volume)
+                
+                # JSON Topics
+                
+                try:
+                    payload_json = json.loads(payload)
+                except JSONDecodeError as e:
+                    print("error decoding: %e" % e.__repr__())
+                    return
+                
+                if (msg.topic.startswith(mqtt_topic_prefix + "speech")) and payload:
+                    print(payload_json)
+                    text = payload_json.get("text","no text specified")
+                    volume = payload_json.get("volume",None)
+                    voice = payload_json.get("voice",None)
+                    self.speak(text,volume,voice)
 
-            if (msg.topic.startswith(mqtt_topic_prefix + "play")) and payload:
-                topic_prefix = mqtt_topic_prefix + "play"
-                pos = msg.topic.rfind("/")
-                if pos == len(topic_prefix):
-                    volume = int(msg.topic.split("/")[-1])
-                self.play(payload,volume)
+                if (msg.topic.startswith(mqtt_topic_prefix + "play")) and payload:
+                    topic_prefix = mqtt_topic_prefix + "play"
+                    pos = msg.topic.rfind("/")
+                    if pos == len(topic_prefix):
+                        volume = int(msg.topic.split("/")[-1])
+                    self.play(payload,volume)
+
+            else:
+            
+                # non-JSON topics
+            
+                if (msg.topic.startswith(mqtt_topic_prefix + "set/volume")) and payload:
+                    volume = int(payload)
+                    self.set_volume(volume)
+                    self.speak("volume %d" % volume)
+                
+                if (msg.topic.startswith(mqtt_topic_prefix + "speech")) and payload:
+                    topic_prefix = mqtt_topic_prefix + "speech"
+                    pos = msg.topic.rfind("/")
+                    if pos == len(topic_prefix):
+                        volume = int(msg.topic.split("/")[-1])
+                    self.speak(payload,volume)
+
+                if (msg.topic.startswith(mqtt_topic_prefix + "play")) and payload:
+                    topic_prefix = mqtt_topic_prefix + "play"
+                    pos = msg.topic.rfind("/")
+                    if pos == len(topic_prefix):
+                        volume = int(msg.topic.split("/")[-1])
+                    self.play(payload,volume)
 
         except:
             logger.error("on_message() error:", sys.exc_info()[0])
