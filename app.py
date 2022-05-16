@@ -4,7 +4,7 @@
 # audio/set/volume 
 # audio/play{/volume_int} "sound_file" without extension
 # audio/speak{/volume_int} "text to speak"
-# audio/play/json - json object with 'sound','volume'
+# audio/play/json - json object with 'name','volume'
 # audio/speak/json - json payload; Required: text; Optional: voice, volume
 # audio/announcement/json - json payload - Required: sound, text; Optional: voice, volume
 
@@ -19,6 +19,13 @@
 #  https://docs.aws.amazon.com/polly/latest/dg/ssml.html
 # https://docs.aws.amazon.com/polly/latest/dg/using-conversational.html
 
+# audio manipulation
+# https://github.com/jiaaro/pydub
+# info on simpleaudio/numpy normalization:
+#  https://simpleaudio.readthedocs.io/en/latest/tutorial.html#waveobject-s
+# see Evernote "Python Audio" also..
+
+
 import sys
 from os import path
 import logging
@@ -26,6 +33,10 @@ from time import sleep
 import subprocess
 
 from pprint import pprint
+
+# SystemD Ready Notification
+import sdnotify
+sd = sdnotify.SystemdNotifier()
 
 # static configuration
 MQTT_TOPIC_PREFIX = "audio/"
@@ -37,6 +48,7 @@ PREFERRED_FORMAT = 'wav'
 TTS_DEFAULT_VOICE = "Matthew"
 
 import paho.mqtt.client as mqtt # pip3 paho-mqtt
+
 import configparser
 import argparse
 import json
@@ -279,6 +291,10 @@ class AudioBridge():
         self.master_mixer = alsa.Mixer(control="Master")
         self.master_mixer.setmute(0)
         self.master_mixer.setvolume(self.master_volume)
+
+        # OK, we made it..
+        # TODO: check if mqtt is connected
+        sd.notify("READY=1")
 
     def start(self):
         

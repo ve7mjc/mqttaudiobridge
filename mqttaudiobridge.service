@@ -1,0 +1,20 @@
+[Unit]
+Description=MQTT Audio Bridge
+Requires=emqx.service
+
+[Service]
+Type=notify
+User=mcurrie
+WorkingDirectory=/opt/mqttaudiobridge
+
+# required to allow user to access sound hardware
+Environment=XDG_RUNTIME_DIR=/run/user/1001
+
+Environment=PATH=venv/bin
+ExecStart=/opt/mqttaudiobridge/venv/bin/python3 app.py
+TimeoutStartSec=30
+NotifyAccess=all
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
