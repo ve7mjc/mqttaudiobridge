@@ -3,4 +3,4 @@ config.ini
 *.log
 database.json
 data/
-
+*.code-workspace

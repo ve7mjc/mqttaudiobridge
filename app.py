@@ -15,16 +15,15 @@
 #  format into wav on the fly and cache it on disk for subsequent requests
 
 # https://docs.aws.amazon.com/polly/latest/dg/API_SynthesizeSpeech.html
-# Speech Synthesis Markup Language (SSML) 
+# Speech Synthesis Markup Language (SSML)
 #  https://docs.aws.amazon.com/polly/latest/dg/ssml.html
 # https://docs.aws.amazon.com/polly/latest/dg/using-conversational.html
 
 # audio manipulation
 # https://github.com/jiaaro/pydub
 # info on simpleaudio/numpy normalization:
-#  https://simpleaudio.readthedocs.io/en/latest/tutorial.html#waveobject-s
+# https://simpleaudio.readthedocs.io/en/latest/tutorial.html#waveobject-s
 # see Evernote "Python Audio" also..
-
 
 import sys
 from os import path
@@ -34,12 +33,12 @@ import subprocess
 
 from pprint import pprint
 
-# SystemD Ready Notification
+# SystemD Service "Ready" Notification
 import sdnotify
 sd = sdnotify.SystemdNotifier()
 
 # static configuration
-MQTT_TOPIC_PREFIX = "audio/"
+MQTT_TOPIC_PREFIX = "audio"
 SOUNDS_PATH = "/opt/sounds"
 CACHE_PATH = "/opt/sounds/cache"
 TTS_WAVEFORM_DB_PATH = "database.json"
@@ -71,19 +70,37 @@ import array
 config = configparser.ConfigParser()
 config.read('config.ini')
 
+baseVolume = config['general']['base_volume']
+
+# 
+# Scale volume from a provided 0 - 100
+# to vol_absolute_min to vol_absolute_max
+# - set baseline volume if fed value == None
+def getScaledVolume(value):
+    if value == None:
+        value = baseVolume
+    volAbsMax = int(config['general']['vol_absolute_max'])
+    volAbsMin = int(config['general']['vol_absolute_min'])
+    val = int(((int(value) / 100) * (volAbsMax - volAbsMin)) + volAbsMin)
+    return val
+
 # Store TTS wave files on disk so we do not hit the server
 #  for subsequent requests for same text
 class TtsWaveformDatabase():
 
     def __init__(self,db_path):
-
+        
         self.db_path = db_path
-
         self.tts_cache_path = "%s/tts" % CACHE_PATH
+        ttsCache = Path(self.tts_cache_path)
         self.filename_base_pattern = self.tts_cache_path + "/tts%05d"
         
         # create cache folder if it does not exist
-        Path(self.tts_cache_path).mkdir(parents=True,exist_ok=True)
+        if ttsCache.exists():
+            print(f"Found TTS Cache: {self.tts_cache_path}")
+        else:
+            print(f"TTS Cache Path not found; Creating {self.tts_cache_path}")
+            ttsCache.mkdir(parents=True,exist_ok=True)
         
         try:
             with open(db_path) as f:
@@ -106,14 +123,12 @@ class TtsWaveformDatabase():
         return None
     
     def add_tts(self,text,filename,extensions,voice):
-        
         tts = {}
         tts["text"] = text
         tts["filename"] = filename.replace(self.tts_cache_path,"")
         tts["voice"] = voice.lower()
         tts["extensions"] = extensions
         self.data["tts"].append(tts)
-        
         self.write_disk()
         
     def write_disk(self):
@@ -123,9 +138,9 @@ class TtsWaveformDatabase():
     def to_json(self):
         return json.dumps(self.data)
 
+
 logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
 logger = logging.getLogger()
-
 
 # requires packages: miniaudio, array
 def convert_audio_miniaudio(in_file, out_file):
@@ -184,15 +199,12 @@ def convert_audio_file(filename_src, filename_dst):
     logger.debug("converting '%s' to '%s'." % (filename_src,filename_dst))
     convert_audio_miniaudio(filename_src, filename_dst)
 
-
 class Polly():
 
     OUTPUT_FORMAT='ogg_vorbis'
 
     def __init__(self):
-        
         self.database = TtsWaveformDatabase(TTS_WAVEFORM_DB_PATH)
-        
         self.aws_config = Config(
             region_name = 'us-west-2',
             signature_version = 'v4',
@@ -241,22 +253,29 @@ class Polly():
             
         return filename_base
         
-
 class AudioBridge():
 
     def __init__(self):
 
-        # create sounds cache folder if it does not exist
-        self.sounds_cache_path = "%s/sounds" % CACHE_PATH
-        Path(self.sounds_cache_path).mkdir(parents=True,exist_ok=True)
+        self.sounds_cache_path = f"{CACHE_PATH}/sounds"
+        cachePath = Path(self.sounds_cache_path)
+
+        if cachePath.exists():
+            files = cachePath.glob('*')
+            logger.info(f"cache path: {self.sounds_cache_path} ({len(list(files))} files)")
+        else:
+            logger.info(f"cache path: {self.sounds_cache_path} - not found; creating!")
+            cachePath.mkdir(parents=True,exist_ok=True)
 
         self.mqttc = mqtt.Client("hmi-audio")
         
         self.mqttc.on_connect = self.on_connect
         self.mqttc.on_message = self.on_message
 
-        self.mqttc.username_pw_set(
-            config['mqtt']['username'], config['mqtt']['password'])
+        # self.mqttc.username_pw_set(
+        #     config['mqtt']['username'], 
+        #     config['mqtt']['password'])
+        
         self.mqttc.connect(config['mqtt']['host'])
         
         # set a default volume
@@ -278,12 +297,13 @@ class AudioBridge():
             for control in mixers:
                 if control == "Auto Gain Control":
                     cardindex = i
+        
         if cardindex is None:
             print("unable to find soundcard!")
             exit()
 
         # Set Mute OFF and device volume to 100%
-        self.device_mixer = alsa.Mixer(control="Speaker",cardindex=cardindex)
+        self.device_mixer = alsa.Mixer(control="Speaker", cardindex=cardindex)
         self.device_mixer.setmute(0)
         self.device_mixer.setvolume(100)
 
@@ -297,16 +317,15 @@ class AudioBridge():
         sd.notify("READY=1")
 
     def start(self):
-        
-        logger.info("### started MQTT Audio Bridge")
-        
+
+        logger.info("Starting MQTT Audio Bridge")
         try:
             self.mqttc.loop_forever()
         except:
             logger.info("shutting down")
             
     def get_tts_waveform(self,text,volume=None,voice=None):
-        
+
         logger.info("speech requested for text='%s', vol=%s, voice=%s" 
             % (text,volume,voice))
         tts = Polly()
@@ -315,15 +334,19 @@ class AudioBridge():
         return speech_waveform
 
     def speak(self,text,volume=None,voice=None):
-        
+
+        if volume == None:
+            volume = baseVolume
         waveform = self.get_tts_waveform(text,volume,voice)
         self.play_sound(waveform + ".wav", volume)
 
     # case and suffix insensitive
     # prefer wav but accept other formats
-    def play_sound(self,req_sound,volume):
+    def play_sound(self,req_sound,reqVolume):
 
         filepath = None
+
+        volume = getScaledVolume(reqVolume)
         
         # check if we have been supplied a full path to a sound file
         if req_sound.startswith("/") or req_sound.startswith(SOUNDS_PATH):
@@ -345,23 +368,20 @@ class AudioBridge():
             
             if filepath and filepath.suffix[1:] not in SUPPORTED_FORMATS:
                 logger.debug("located a file as conversion candidate: %s" % filepath)
-            
                 # convert file to preferred format and write to cache path
                 target_file = "%s/%s.%s" % (self.sounds_cache_path,req_sound,PREFERRED_FORMAT)
                 if convert_audio_file(filepath,target_file):
                     logger.error("error converting sound file")
                     return True
-                    
+            
                 filepath = target_file
                 
             # check if we have already converted this file
 
         if filepath:
-
-            logger.info("playing audio file %s at volume %s" % (filepath,volume))
-            if volume:
+            logger.info(f"playing audio file '{filepath}' at volume {volume}")
+            if volume != None:
                 self.set_volume(volume, True)
-
             #  SimpleAudio WaveObject 
             try:
                 wave_obj = simpleaudio.WaveObject.from_wave_file(str(filepath))
@@ -369,72 +389,68 @@ class AudioBridge():
                 play_obj.wait_done() # wait until sound has finished playing
             except Exception as e:
                 logger.error("error playing file: %s" % e.__repr__())
-            
         else:
             logger.error("could not locate a sound file for '%s'!" % req_sound)
 
         if volume:
-            self.reset_volume()
-
+            self.restore_volume()
 
     # The callback for when the client receives a CONNACK response from the server.
     def on_connect(self,client, userdata, flags, rc):
         if rc==0:
-            print("Connected to MQTT broker %s@%s:%s" % 
-                (config['mqtt']['username'], config['mqtt']['host'], config['mqtt']['port']))
-            subscription = "%s#" % MQTT_TOPIC_PREFIX
+            logger.info(f"Connected to MQTT broker {config['mqtt']['host']}:{config['mqtt']['port']}")
+            subscription = f"{MQTT_TOPIC_PREFIX}/#"
             self.mqttc.subscribe(subscription)
-            print("Subscribed to %s" % subscription)
+            logger.info(f"Subscribed to: {subscription}")
         else:
-            print("ERROR connecting to MQTT with result code " + str(rc))
+            logger.error("ERROR connecting to MQTT with result code " + str(rc))
 
-    def reset_volume(self):
-        volume = self.master_mixer.getvolume()[0]
-        if volume != self.master_volume:
+    def restore_volume(self):
+        # only set volume if it is not currently what we are looking for
+        if self.master_mixer.getvolume()[0] != self.master_volume:
+            logger.debug(f"master_mixer.setvolume -> {self.master_volume}")
             self.master_mixer.setvolume(self.master_volume)
 
     def set_volume(self,value,temp=False):
         
         if isinstance(value,str):
             value = int(float(value))
-            
+
         if isinstance(value,float):
             value = int(value)
-            
+
         if value >= 0 and value <= 100:
             self.master_mixer.setvolume(value)
             if not temp:
                 self.master_volume = value
         else:
-            print("ERROR, cannot set volume to '%s'. Must be between 0 and 1." % value)
+            logger.error("ERROR: cannot set volume to '%s'. Must be between 0 and 1." % value)
 
     # The callback for when a PUBLISH message is received from the server.
     def on_message(self,client,userdata,msg):
         try:
-            
             payload = msg.payload.decode('utf-8')
-
+            
+            logger.debug(f"received mqtt: topic={msg.topic}; payload={payload}")
+            
             volume = None
-
             payload_json = None
+
             if "/json" in msg.topic:
-                
                 # JSON Topics
-                
                 try:
                     payload_json = json.loads(payload)
                 except JSONDecodeError as e:
-                    print("error decoding: %e" % e.__repr__())
+                    logger.error("error decoding: %e" % e.__repr__())
                     return
                     
                 # common elements
                 volume = payload_json.get("volume", None)
-                if volume is None:
+                if volume == None:
                     volume = self.master_volume
                 
                 # announcement/json
-                if (msg.topic.startswith(MQTT_TOPIC_PREFIX + "announcement")) and payload:
-                    
+                if msg.topic.startswith(f"{MQTT_TOPIC_PREFIX}/announcement") and payload:                
                     try:
                         sound = payload_json.get("sound")
                         text = payload_json.get("text")
@@ -449,22 +465,20 @@ class AudioBridge():
                     self.play_sound("%s.wav" % tts_waveform,volume)
 
                 # speech/json
-                if (msg.topic.startswith(MQTT_TOPIC_PREFIX + "speech")) and payload:
+                if msg.topic.startswith(f"{MQTT_TOPIC_PREFIX}/speak") and payload:
                     text = payload_json.get("text","no text specified")
                     voice = payload_json.get("voice",None)
                     self.speak(text,volume,voice)
 
                 # play/json
-                if (msg.topic.startswith(MQTT_TOPIC_PREFIX + "play")) and payload:
+                if msg.topic.startswith(f"{MQTT_TOPIC_PREFIX}/play") and payload:
                     name = payload_json.get("name")
                     self.play_sound(name,volume)
 
             else:
-            
                 # non-JSON messages (dictated by topic)
-            
                 # SET VOLUME - topic_prefix/set/volume -> 55
-                if (msg.topic.startswith(MQTT_TOPIC_PREFIX + "set/volume")) and payload:
+                if msg.topic.startswith(f"{MQTT_TOPIC_PREFIX}/set/volume") and payload:
                     
                     volume = int(payload)
                     self.set_volume(volume)
@@ -474,15 +488,15 @@ class AudioBridge():
                     else:
                         self.volume_is_set = True
                 
-                if (msg.topic.startswith(MQTT_TOPIC_PREFIX + "speech")) and payload:
-                    topic_prefix = MQTT_TOPIC_PREFIX + "speech"
+                if msg.topic.startswith(f"{MQTT_TOPIC_PREFIX}/speak") and payload:
+                    topic_prefix = f"{MQTT_TOPIC_PREFIX}/speak"
                     pos = msg.topic.rfind("/")
                     if pos == len(topic_prefix):
                         volume = int(msg.topic.split("/")[-1])
                     self.speak(payload,volume)
 
-                if (msg.topic.startswith(MQTT_TOPIC_PREFIX + "play")) and payload:
-                    topic_prefix = MQTT_TOPIC_PREFIX + "play"
+                if msg.topic.startswith(f"{MQTT_TOPIC_PREFIX}/play") and payload:
+                    topic_prefix = f"{MQTT_TOPIC_PREFIX}/play"
                     pos = msg.topic.rfind("/")
                     if pos == len(topic_prefix):
                         volume = int(msg.topic.split("/")[-1])
