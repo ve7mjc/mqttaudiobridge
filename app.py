@@ -79,6 +79,7 @@ baseVolume = config['general']['base_volume']
 def getScaledVolume(value):
     if value == None:
         value = baseVolume
+    value = float(value)
     volAbsMax = int(config['general']['vol_absolute_max'])
     volAbsMin = int(config['general']['vol_absolute_min'])
     val = int(((int(value) / 100) * (volAbsMax - volAbsMin)) + volAbsMin)
@@ -444,13 +445,17 @@ class AudioBridge():
                     logger.error("error decoding: %e" % e.__repr__())
                     return
                     
+                if not payload:
+                    logger.info(f"warning! no payload; topic={msg.topic}")
+                    return
+
                 # common elements
                 volume = payload_json.get("volume", None)
                 if volume == None:
                     volume = self.master_volume
                 
                 # announcement/json
-                if msg.topic.startswith(f"{MQTT_TOPIC_PREFIX}/announcement") and payload:                
+                if msg.topic.startswith(f"{MQTT_TOPIC_PREFIX}/announcement"):
                     try:
                         sound = payload_json.get("sound")
                         text = payload_json.get("text")
@@ -465,20 +470,23 @@ class AudioBridge():
                     self.play_sound("%s.wav" % tts_waveform,volume)
 
                 # speech/json
-                if msg.topic.startswith(f"{MQTT_TOPIC_PREFIX}/speak") and payload:
+                if (msg.topic.startswith(f"{MQTT_TOPIC_PREFIX}/speak") or 
+                        msg.topic.startswith(f"{MQTT_TOPIC_PREFIX}/speech")):
                     text = payload_json.get("text","no text specified")
                     voice = payload_json.get("voice",None)
+                    volume = payload_json.get("volume",None)
                     self.speak(text,volume,voice)
 
                 # play/json
-                if msg.topic.startswith(f"{MQTT_TOPIC_PREFIX}/play") and payload:
+                if msg.topic.startswith(f"{MQTT_TOPIC_PREFIX}/play"):
                     name = payload_json.get("name")
+                    volume = payload_json.get("volume",None)
                     self.play_sound(name,volume)
 
             else:
                 # non-JSON messages (dictated by topic)
                 # SET VOLUME - topic_prefix/set/volume -> 55
-                if msg.topic.startswith(f"{MQTT_TOPIC_PREFIX}/set/volume") and payload:
+                if msg.topic.startswith(f"{MQTT_TOPIC_PREFIX}/set/volume"):
                     
                     volume = int(payload)
                     self.set_volume(volume)
@@ -488,14 +496,22 @@ class AudioBridge():
                     else:
                         self.volume_is_set = True
                 
-                if msg.topic.startswith(f"{MQTT_TOPIC_PREFIX}/speak") and payload:
+                # Speak -- TTS
+                # speak/speech (duplicate below)
+                if msg.topic.startswith(f"{MQTT_TOPIC_PREFIX}/speak"):
                     topic_prefix = f"{MQTT_TOPIC_PREFIX}/speak"
                     pos = msg.topic.rfind("/")
                     if pos == len(topic_prefix):
                         volume = int(msg.topic.split("/")[-1])
                     self.speak(payload,volume)
+                if msg.topic.startswith(f"{MQTT_TOPIC_PREFIX}/speech"):
+                    topic_prefix = f"{MQTT_TOPIC_PREFIX}/speech"
+                    pos = msg.topic.rfind("/")
+                    if pos == len(topic_prefix):
+                        volume = int(msg.topic.split("/")[-1])
+                    self.speak(payload,volume)
 
-                if msg.topic.startswith(f"{MQTT_TOPIC_PREFIX}/play") and payload:
+                if msg.topic.startswith(f"{MQTT_TOPIC_PREFIX}/play"):
                     topic_prefix = f"{MQTT_TOPIC_PREFIX}/play"
                     pos = msg.topic.rfind("/")
                     if pos == len(topic_prefix):
