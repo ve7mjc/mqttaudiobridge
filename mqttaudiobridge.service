@@ -1,5 +1,6 @@
 [Unit]
 Description=MQTT Audio Bridge
+After=emqx.service network.target 
 Requires=emqx.service
 
 [Service]
