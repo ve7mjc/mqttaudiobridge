@@ -141,7 +141,7 @@ class TtsWaveformDatabase():
 
 
 logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
-logger = logging.getLogger()
+logger = logging.getLogger("AudioBridge")
 
 # requires packages: miniaudio, array
 def convert_audio_miniaudio(in_file, out_file):
@@ -312,6 +312,9 @@ class AudioBridge():
         self.master_mixer = alsa.Mixer(control="Master")
         self.master_mixer.setmute(0)
         self.master_mixer.setvolume(self.master_volume)
+
+        masterRange = self.master_mixer.getrange()
+        deviceRange = self.device_mixer.getrange()
 
         # OK, we made it..
         # TODO: check if mqtt is connected

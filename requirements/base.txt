@@ -1,0 +1,28 @@
+boto3
+paho-mqtt
+requests
+sdnotify
+python-dotenv
+
+# alsaaudio as alsa
+pyalsaaudio
+
+# conversions
+miniaudio
+
+# audioplayer==0.6
+# certifi==2020.12.5
+# cffi==1.14.4
+# chardet==4.0.0
+# idna==2.10
+# jmespath==0.10.0
+# paho-mqtt==1.5.1
+# pkg-resources==0.0.0
+# playsound==1.2.2
+# pycairo==1.20.0
+# pycparser==2.20
+# python-dateutil==2.8.1
+# s3transfer==0.3.3
+# simpleaudio==1.0.4
+# six==1.15.0
+# urllib3==1.26.2
